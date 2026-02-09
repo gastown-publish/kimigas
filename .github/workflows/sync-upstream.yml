@@ -1,13 +1,13 @@
 name: Sync upstream and test gastown patches
 
-# Runs daily and on manual trigger to pull new kimi-cli versions
+# Runs every 6 hours and on manual trigger to pull new kimi-cli versions
 # from MoonshotAI/kimi-cli, verify gastown patches still apply,
 # run tests, and auto-merge if everything passes.
 
 on:
   schedule:
-    # Run daily at 06:00 UTC
-    - cron: "0 6 * * *"
+    # Check upstream every 6 hours
+    - cron: "0 */6 * * *"
   workflow_dispatch:
     inputs:
       force_sync:
