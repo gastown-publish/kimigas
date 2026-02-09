@@ -2,6 +2,12 @@
 
 Besides using in the terminal and IDEs, Kimi Code CLI can also be integrated with other tools.
 
+## Gas Town (multi-agent orchestration)
+
+Kimi Code CLI can run as a first-class agent in [Gas Town](https://github.com/steveyegge/gastown), a multi-agent orchestration system. It supports three integration modes: interactive shell (crew workers), wire protocol (programmatic control), and print mode (ephemeral polecats).
+
+See the dedicated [Gas Town Integration](./gastown.md) guide for full setup instructions.
+
 ## Zsh plugin
 
 [zsh-kimi-cli](https://github.com/MoonshotAI/zsh-kimi-cli) is a Zsh plugin that lets you quickly switch to Kimi Code CLI in Zsh.

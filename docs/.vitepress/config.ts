@@ -121,6 +121,7 @@ export default withMermaid(defineConfig({
                 { text: 'Sessions and Context', link: '/en/guides/sessions' },
                 { text: 'Using in IDEs', link: '/en/guides/ides' },
                 { text: 'Integrations with Tools', link: '/en/guides/integrations' },
+                { text: 'Gas Town Integration', link: '/en/guides/gastown' },
               ],
             },
           ],
