@@ -1,0 +1,173 @@
+#!/usr/bin/env bash
+# kimigas - Kimi Code CLI adapter for Gas Town
+#
+# A gastown-compatible wrapper around kimi-cli that enables Kimi Code
+# to operate as a first-class Gas Town agent (crew, polecat, or dog).
+#
+# Usage:
+#   kimigas --yolo                    # Interactive mode with auto-approval (crew)
+#   kimigas --yolo -p "do something"  # One-shot mode (polecat)
+#   kimigas --wire                    # Wire protocol mode (programmatic)
+#   kimigas --print                   # Non-interactive print mode
+#
+# Gas Town integration:
+#   gt config agent set kimigas "kimigas --yolo"
+#   gt crew start myrig myname --agent kimigas
+#   gt sling gt-abc myrig --agent kimigas
+#
+set -euo pipefail
+
+SCRIPT_NAME="$(basename "$0")"
+VERSION="0.1.0"
+
+# --- Configuration ---
+KIMI_BIN="${KIMI_BIN:-kimi}"
+GASTOWN_HOME="${GASTOWN_HOME:-$HOME}"
+
+# Default flags for gastown compatibility
+KIMI_ARGS=()
+YOLO_MODE=false
+WIRE_MODE=false
+PRINT_MODE=false
+PROMPT=""
+WORK_DIR=""
+PASSTHROUGH_ARGS=()
+
+# --- Parse arguments ---
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --yolo|--yes|-y|--auto-approve)
+            YOLO_MODE=true
+            KIMI_ARGS+=("--yolo")
+            shift
+            ;;
+        --wire)
+            WIRE_MODE=true
+            KIMI_ARGS+=("--wire")
+            shift
+            ;;
+        --print)
+            PRINT_MODE=true
+            KIMI_ARGS+=("--print")
+            shift
+            ;;
+        -p|--prompt|-c|--command)
+            PROMPT="$2"
+            KIMI_ARGS+=("-p" "$2")
+            shift 2
+            ;;
+        -w|--work-dir)
+            WORK_DIR="$2"
+            KIMI_ARGS+=("--work-dir" "$2")
+            shift 2
+            ;;
+        --version|-V)
+            echo "kimigas version $VERSION (kimi-cli adapter for Gas Town)"
+            "$KIMI_BIN" --version 2>/dev/null || true
+            exit 0
+            ;;
+        --help|-h)
+            cat <<'HELP'
+kimigas - Kimi Code CLI adapter for Gas Town
+
+USAGE:
+    kimigas --yolo                     Interactive mode, auto-approve all (crew/dog)
+    kimigas --yolo -p "task"           One-shot mode (polecat)
+    kimigas --wire                     Wire protocol (JSON-RPC 2.0 via stdin/stdout)
+    kimigas --print --input-format stream-json --output-format stream-json
+                                       Streaming JSON mode (programmatic)
+
+GAS TOWN INTEGRATION:
+    gt config agent set kimigas "kimigas --yolo"
+    gt crew add myname --rig kimigas
+    gt crew start kimigas myname --agent kimigas
+    gt sling gt-abc kimigas --agent kimigas
+
+FLAGS:
+    --yolo, --yes, -y    Auto-approve all actions (required for gastown)
+    --wire               Wire protocol mode (JSON-RPC 2.0)
+    --print              Non-interactive print mode
+    -p, --prompt TEXT    Initial prompt / task
+    -w, --work-dir DIR   Working directory
+    -V, --version        Show version
+    -h, --help           Show this help
+
+    All other flags are passed through to kimi-cli.
+
+ENVIRONMENT:
+    KIMI_BIN             Path to kimi binary (default: kimi)
+    GASTOWN_HOME         Gas Town home directory (default: $HOME)
+
+HELP
+            exit 0
+            ;;
+        -*)
+            # Pass through flags to kimi
+            PASSTHROUGH_ARGS+=("$1")
+            shift
+            ;;
+        *)
+            # Bare positional arg = prompt (gt passes beacon prompts this way)
+            # Store it but don't add -p yet — we decide how to deliver it below
+            if [[ -z "$PROMPT" ]]; then
+                PROMPT="$1"
+                BARE_PROMPT=true
+            else
+                PASSTHROUGH_ARGS+=("$1")
+            fi
+            shift
+            ;;
+    esac
+done
+
+# --- Validate ---
+if ! command -v "$KIMI_BIN" &>/dev/null; then
+    echo "Error: kimi-cli not found. Install with: uv tool install git+https://github.com/gastown-publish/kimigas.git" >&2
+    exit 1
+fi
+
+# --- Gas Town environment setup ---
+
+# If GT_ROLE is set, we're running inside gastown - set up accordingly
+if [[ -n "${GT_ROLE:-}" ]]; then
+    # Log startup for gastown monitoring
+    echo "[kimigas] Starting as Gas Town ${GT_ROLE} (pid $$)" >&2
+
+    # If there's an AGENTS.md in the workspace, kimi will read it automatically
+    # If there's a CLAUDE.md but no AGENTS.md, create a symlink for kimi compatibility
+    if [[ -f "CLAUDE.md" && ! -f "AGENTS.md" ]]; then
+        echo "[kimigas] Creating AGENTS.md symlink from CLAUDE.md for kimi compatibility" >&2
+        ln -sf CLAUDE.md AGENTS.md 2>/dev/null || true
+    fi
+fi
+
+# --- Deliver prompt ---
+# If prompt was given via -p/--prompt flag, it's already in KIMI_ARGS.
+# If prompt was a bare positional arg (from gt crew at beacon):
+#   - In print/wire mode: use -p (one-shot is expected)
+#   - In interactive mode: schedule delivery via tmux send-keys after kimi starts,
+#     so kimi stays alive for more input (unlike -p which exits after one turn)
+if [[ "${BARE_PROMPT:-false}" == "true" && -n "$PROMPT" ]]; then
+    if [[ "$PRINT_MODE" == "true" || "$WIRE_MODE" == "true" ]]; then
+        # One-shot modes: use -p flag
+        KIMI_ARGS+=("-p" "$PROMPT")
+    elif [[ -n "${TMUX:-}" ]]; then
+        # Interactive mode in tmux (crew): schedule prompt delivery after kimi starts
+        _PANE_ID=$(tmux display-message -p '#{pane_id}' 2>/dev/null || true)
+        if [[ -n "$_PANE_ID" ]]; then
+            # Background: wait for kimi to show its prompt, then send the text
+            (
+                sleep 4
+                tmux send-keys -t "$_PANE_ID" -- "$PROMPT" Enter 2>/dev/null || true
+            ) &
+            disown
+        fi
+        # Don't add -p — let kimi start interactive
+    else
+        # Not in tmux, fall back to -p (will be one-shot but no other option)
+        KIMI_ARGS+=("-p" "$PROMPT")
+    fi
+fi
+
+# --- Launch kimi ---
+exec "$KIMI_BIN" "${KIMI_ARGS[@]}" "${PASSTHROUGH_ARGS[@]}"
