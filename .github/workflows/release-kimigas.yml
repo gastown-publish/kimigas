@@ -30,18 +30,10 @@ jobs:
             target: aarch64-apple-darwin
             os: darwin
             arch: arm64
-          - runner: windows-2022
-            target: x86_64-pc-windows-msvc
-            os: windows
-            arch: amd64
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Install GNU Make (Windows)
-        if: runner.os == 'Windows'
-        run: choco install make -y
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -71,35 +63,14 @@ jobs:
         run: make build-bin
 
       - name: Package binary
-        shell: python
-        env:
-          TAG: ${{ github.ref_name }}
-          TARGET: ${{ matrix.target }}
         run: |
-          import os, pathlib, tarfile, zipfile
-
-          tag = os.environ["TAG"].lstrip("v")
-          target = os.environ["TARGET"]
-          is_windows = "windows" in target
-
-          artifacts = pathlib.Path("artifacts")
-          artifacts.mkdir(exist_ok=True)
-
-          binary_name = "kimi.exe" if is_windows else "kimi"
-          binary_path = pathlib.Path("dist/onefile") / binary_name
-          if not binary_path.exists():
-              raise SystemExit(f"Binary not found: {binary_path}")
-
-          if is_windows:
-              archive = artifacts / f"kimigas-{tag}-{target}.zip"
-              with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as zf:
-                  zf.write(binary_path, arcname=binary_name)
-          else:
-              archive = artifacts / f"kimigas-{tag}-{target}.tar.gz"
-              with tarfile.open(archive, "w:gz") as tf:
-                  tf.add(binary_path, arcname="kimi")
-
-          print(f"Built: {archive}")
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME#v}"
+          TARGET="${{ matrix.target }}"
+          mkdir -p artifacts
+          ARCHIVE="artifacts/kimigas-${TAG}-${TARGET}.tar.gz"
+          tar -czf "${ARCHIVE}" -C dist/onefile kimi
+          echo "Built: ${ARCHIVE}"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -141,66 +112,13 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  publish-pypi:
-    name: Publish to PyPI
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+  # publish-pypi:
+  #   Disabled: upstream package name is 'kimi-cli' which we can't publish to.
+  #   To enable: register 'kimigas' on PyPI and update pyproject.toml name.
 
-      - name: Set up Python 3.14
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.14"
-          allow-prereleases: true
-
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v1
-        with:
-          version: "0.8.5"
-
-      - name: Set up Node.js (web build)
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "npm"
-          cache-dependency-path: web/package-lock.json
-
-      - name: Build Python package
-        run: |
-          uv build --package kimi-cli
-          ls -la dist/
-
-      - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          user: __token__
-          password: ${{ secrets.PYPI_API_TOKEN }}
-          packages-dir: dist
-
-  publish-npm:
-    name: Publish to npm
-    needs: release
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          registry-url: "https://registry.npmjs.org"
-
-      - name: Publish npm package
-        working-directory: npm
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          npm version "$VERSION" --no-git-tag-version
-          npm publish --access public
+  # publish-npm:
+  #   Disabled: npm package 'kimigas' needs to be created first.
+  #   To enable: npm login && cd npm && npm publish --access public
 
   publish-deb:
     name: Build and attach .deb packages
@@ -264,9 +182,8 @@ jobs:
           cp README.md "${PKG}/usr/share/doc/kimigas/"
 
           dpkg-deb --build --root-owner-group "${PKG}"
-          mv "${PKG}.deb" "kimigas_${VERSION}_${ARCH}.deb"
 
-          echo "Built: kimigas_${VERSION}_${ARCH}.deb"
+          echo "Built: ${PKG}.deb"
 
       - name: Upload .deb to release
         uses: softprops/action-gh-release@v2
