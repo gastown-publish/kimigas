@@ -1,0 +1,29 @@
+{
+  "name": "kimigas",
+  "version": "0.1.0",
+  "description": "Kimi Code CLI for Gas Town — AI agent for terminal-based software development and multi-agent orchestration",
+  "keywords": ["ai", "cli", "agent", "gastown", "kimi", "coding-agent", "terminal"],
+  "homepage": "https://github.com/gastown-publish/kimigas",
+  "bugs": "https://github.com/gastown-publish/kimigas/issues",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gastown-publish/kimigas.git"
+  },
+  "license": "Apache-2.0",
+  "bin": {
+    "kimigas": "bin/kimigas"
+  },
+  "scripts": {
+    "postinstall": "node install.js"
+  },
+  "os": ["darwin", "linux", "win32"],
+  "cpu": ["x64", "arm64"],
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "bin/",
+    "install.js",
+    "README.md"
+  ]
+}

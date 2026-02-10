@@ -1,0 +1,26 @@
+#!/usr/bin/env node
+"use strict";
+
+const { execFileSync } = require("child_process");
+const path = require("path");
+const os = require("os");
+const fs = require("fs");
+
+const binDir = __dirname;
+const isWindows = os.platform() === "win32";
+const binaryName = isWindows ? "kimigas.exe" : "kimigas";
+const binaryPath = path.join(binDir, binaryName);
+
+if (!fs.existsSync(binaryPath)) {
+  console.error("kimigas binary not found. Run: npm rebuild kimigas");
+  process.exit(1);
+}
+
+try {
+  const result = execFileSync(binaryPath, process.argv.slice(2), {
+    stdio: "inherit",
+    env: process.env,
+  });
+} catch (err) {
+  process.exit(err.status || 1);
+}

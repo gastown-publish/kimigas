@@ -8,21 +8,33 @@
 
 Kimi Code CLI is an AI agent that runs in the terminal, helping you complete software development tasks and terminal operations. It can read and edit code, execute shell commands, search and fetch web pages, and autonomously plan and adjust actions during execution.
 
-## Getting Started
+## Install
 
-> **This is the [Gas Town fork](https://github.com/gastown-publish/kimigas)** with tmux compatibility patches, message queuing, and multi-agent orchestration support. Install from this repo (not PyPI) to get these features:
->
-> ```sh
-> # Option 1: uv (recommended)
-> uv tool install git+https://github.com/gastown-publish/kimigas.git
->
-> # Option 2: pip
-> pip install git+https://github.com/gastown-publish/kimigas.git
-> ```
->
-> See the [Gas Town integration guide](docs/en/guides/gastown.md) for setup details.
+> **This is the [Gas Town fork](https://github.com/gastown-publish/kimigas)** with tmux compatibility patches, message queuing, and multi-agent orchestration support.
 
-For upstream documentation, see [Getting Started](https://moonshotai.github.io/kimi-cli/en/guides/getting-started.html).
+```sh
+# Quick install (Linux/macOS)
+curl -fsSL https://raw.githubusercontent.com/gastown-publish/kimigas/main/install.sh | bash
+
+# Homebrew (macOS/Linux)
+brew install gastown-publish/tap/kimigas
+
+# pip / uv (all platforms)
+pip install kimigas
+uv tool install kimigas
+
+# npm (all platforms)
+npm install -g kimigas
+
+# apt (Debian/Ubuntu) — download .deb from GitHub releases
+curl -LO "https://github.com/gastown-publish/kimigas/releases/latest/download/kimigas_$(curl -s https://api.github.com/repos/gastown-publish/kimigas/releases/latest | grep tag_name | grep -o '[0-9.]*')_amd64.deb"
+sudo dpkg -i kimigas_*.deb
+
+# From source
+uv tool install git+https://github.com/gastown-publish/kimigas.git
+```
+
+See the [Gas Town integration guide](docs/en/guides/gastown.md) for setup details. For upstream documentation, see [Getting Started](https://moonshotai.github.io/kimi-cli/en/guides/getting-started.html).
 
 ## Key Features
 

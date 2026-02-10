@@ -1,0 +1,84 @@
+name: Update Homebrew Formula
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  update-tap:
+    name: Update Homebrew tap
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout tap repo
+        uses: actions/checkout@v4
+        with:
+          repository: gastown-publish/homebrew-tap
+          token: ${{ secrets.TAP_GITHUB_TOKEN }}
+          path: tap
+
+      - name: Update formula
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          FORMULA="tap/Formula/kimigas.rb"
+
+          # Download and compute checksums
+          for target in aarch64-apple-darwin x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu; do
+            URL="https://github.com/gastown-publish/kimigas/releases/download/v${VERSION}/kimigas-${VERSION}-${target}.tar.gz"
+            SHA=$(curl -fsSL "${URL}" | sha256sum | cut -d' ' -f1)
+            echo "${target}: ${SHA}"
+
+            case "$target" in
+              aarch64-apple-darwin)   DARWIN_ARM64_SHA="$SHA" ;;
+              x86_64-unknown-linux-gnu) LINUX_AMD64_SHA="$SHA" ;;
+              aarch64-unknown-linux-gnu) LINUX_ARM64_SHA="$SHA" ;;
+            esac
+          done
+
+          cat > "$FORMULA" << RUBY
+          class Kimigas < Formula
+            desc "Kimi Code CLI for Gas Town - AI agent for terminal-based development"
+            homepage "https://github.com/gastown-publish/kimigas"
+            license "Apache-2.0"
+            version "${VERSION}"
+
+            on_macos do
+              on_arm do
+                url "https://github.com/gastown-publish/kimigas/releases/download/v${VERSION}/kimigas-${VERSION}-aarch64-apple-darwin.tar.gz"
+                sha256 "${DARWIN_ARM64_SHA}"
+              end
+            end
+
+            on_linux do
+              on_intel do
+                url "https://github.com/gastown-publish/kimigas/releases/download/v${VERSION}/kimigas-${VERSION}-x86_64-unknown-linux-gnu.tar.gz"
+                sha256 "${LINUX_AMD64_SHA}"
+              end
+
+              on_arm do
+                url "https://github.com/gastown-publish/kimigas/releases/download/v${VERSION}/kimigas-${VERSION}-aarch64-unknown-linux-gnu.tar.gz"
+                sha256 "${LINUX_ARM64_SHA}"
+              end
+            end
+
+            def install
+              bin.install "kimi" => "kimigas"
+              bin.install_symlink "kimigas" => "kimi"
+            end
+
+            test do
+              assert_match version.to_s, shell_output("#{bin}/kimigas --version 2>&1")
+            end
+          end
+          RUBY
+          # Remove leading whitespace from heredoc
+          sed -i 's/^          //' "$FORMULA"
+
+      - name: Commit and push
+        working-directory: tap
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/kimigas.rb
+          git commit -m "Update kimigas to ${GITHUB_REF_NAME#v}"
+          git push
