@@ -5,11 +5,8 @@ from __future__ import annotations
 import json
 import os
 import shutil
-import socket
-import subprocess
-import time
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 
@@ -17,66 +14,69 @@ from kimi_cli.utils.subprocess_env import get_clean_env
 
 cli = typer.Typer(help="Run other CLI tools with Kimi backend.")
 
-# CCR (claude-code-router) configuration defaults
-_CCR_DEFAULT_HOST = "127.0.0.1"
-_CCR_DEFAULT_PORT = 8180
-_CCR_START_TIMEOUT = 10  # seconds
+# Kimi's native Anthropic-compatible endpoint
+_KIMI_ANTHROPIC_BASE_URL = "https://api.kimi.com/coding/"
+
+# Separate config dir to force API key auth (avoiding OAuth)
+_CLAUDE_CONFIG_DIR = Path.home() / ".claude-kimigas"
 
 
-def _get_ccr_config() -> tuple[str, int]:
-    """Get CCR host and port from config file or defaults."""
-    config_path = Path.home() / ".claude-code-router" / "config.json"
-    try:
-        if config_path.exists():
-            with open(config_path, encoding="utf-8") as f:
-                config = json.load(f)
-            host = config.get("HOST", _CCR_DEFAULT_HOST)
-            port = config.get("PORT", _CCR_DEFAULT_PORT)
-            return host, port
-    except Exception:
-        pass
-    return _CCR_DEFAULT_HOST, _CCR_DEFAULT_PORT
+def _setup_kimigas_config(api_key: str) -> None:
+    """Set up isolated Claude config dir for API key auth.
 
+    Claude Code interactive mode ignores ANTHROPIC_API_KEY env var, preferring
+    OAuth from .credentials.json. To use API key auth, we need a separate config
+    dir with:
+      1. No OAuth credentials (.credentials.json without claudeAiOauth)
+      2. Onboarding marked complete (hasCompletedOnboarding in .claude.json)
+      3. API key fingerprint pre-approved (customApiKeyResponses.approved)
+    """
+    config_dir = _CLAUDE_CONFIG_DIR
+    config_dir.mkdir(parents=True, exist_ok=True)
 
-def _is_ccr_running(host: str, port: int) -> bool:
-    """Check if claude-code-router is running."""
-    try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(1)
-        result = sock.connect_ex((host, port))
-        sock.close()
-        return result == 0
-    except Exception:
-        return False
+    # Copy essential config from main claude dir if it exists
+    main_claude_dir = Path.home() / ".claude"
+    if main_claude_dir.exists():
+        for f in [".claude.json", "settings.json", "keybindings.json", "stats-cache.json"]:
+            src = main_claude_dir / f
+            dst = config_dir / f
+            if src.exists() and not dst.exists():
+                shutil.copy2(src, dst)
+        for d in ["skills", "agents", "commands", "plugins"]:
+            src = main_claude_dir / d
+            dst = config_dir / d
+            if src.exists() and not dst.exists():
+                shutil.copytree(src, dst, ignore_dangling_symlinks=True)
 
+    # Write empty credentials (no OAuth = forces API key auth)
+    creds_file = config_dir / ".credentials.json"
+    creds_file.write_text("{}")
 
-def _start_ccr() -> bool:
-    """Start claude-code-router if available."""
-    ccr_path = shutil.which("ccr")
-    if ccr_path is None:
-        return False
+    # Patch .claude.json: mark onboarding complete, pre-approve API key
+    cfg_file = config_dir / ".claude.json"
+    fingerprint = api_key[-20:] if len(api_key) >= 20 else api_key
 
-    try:
-        # Start CCR in background
-        subprocess.Popen(
-            [ccr_path, "start"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
-        )
+    cfg: dict[str, Any] = {}
+    if cfg_file.exists():
+        try:
+            cfg = json.loads(cfg_file.read_text())
+        except json.JSONDecodeError:
+            pass
 
-        # Get the configured host/port
-        host, port = _get_ccr_config()
+    cfg["hasCompletedOnboarding"] = True
+    cfg["lastOnboardingVersion"] = "2.1.38"
+    cfg["theme"] = cfg.get("theme", "dark")
+    cfg["bypassPermissionsModeAccepted"] = True
 
-        # Wait for CCR to be ready
-        for _ in range(_CCR_START_TIMEOUT):
-            if _is_ccr_running(host, port):
-                return True
-            time.sleep(1)
+    # Manage customApiKeyResponses with proper typing
+    custom_responses: dict[str, Any] = cfg.get("customApiKeyResponses", {})
+    approved: list[str] = custom_responses.get("approved", [])
+    if fingerprint not in approved:
+        approved.append(fingerprint)
+    custom_responses["approved"] = approved
+    cfg["customApiKeyResponses"] = custom_responses
 
-        return False
-    except Exception:
-        return False
+    cfg_file.write_text(json.dumps(cfg))
 
 
 def _find_claude_binary() -> str | None:
@@ -109,33 +109,26 @@ def claude(
             "--yes",
             "-y",
             "--auto-approve",
-            help="Automatically approve all actions. Default: no.",
+            help="Automatically approve all actions. Maps to --dangerously-skip-permissions.",
         ),
     ] = False,
-    dangerous_skip_permissions: Annotated[
-        bool,
+    api_key: Annotated[
+        str | None,
         typer.Option(
-            "--dangerously-skip-permissions",
-            help="Skip all permission checks (use with caution).",
+            "--api-key",
+            help="Kimi API key. Defaults to KIMI_API_KEY env var.",
         ),
-    ] = False,
-    no_auto_start_ccr: Annotated[
-        bool,
-        typer.Option(
-            "--no-auto-start-ccr",
-            help="Don't automatically start claude-code-router if not running.",
-        ),
-    ] = False,
+    ] = None,
 ):
-    """Run Claude Code with Kimi backend via claude-code-router.
+    """Run Claude Code with Kimi K2.5 backend.
 
-    This command launches Claude Code but redirects all API calls to Kimi K2.5
-    through claude-code-router. This allows you to use Claude Code's interface
-    with Kimi's model.
+    This command launches Claude Code but redirects all API calls to Kimi's
+    native Anthropic-compatible endpoint (https://api.kimi.com/coding/).
+    This gives you Claude Code's interface with Kimi K2.5 as the model.
 
     Requires:
         - claude: Anthropic's Claude Code CLI (npm install -g @anthropic-ai/claude-code)
-        - ccr: claude-code-router (pip install claude-code-router)
+        - KIMI_API_KEY environment variable or --api-key option
 
     Examples:
         kimigas run claude                    # Run Claude Code with Kimi backend
@@ -152,63 +145,36 @@ def claude(
         )
         raise typer.Exit(code=1)
 
-    # Check if CCR is installed
-    if shutil.which("ccr") is None:
+    # Get API key from option or environment
+    kimi_api_key = api_key or os.getenv("KIMI_API_KEY") or os.getenv("ANTHROPIC_API_KEY")
+    if not kimi_api_key:
         typer.echo(
-            "Error: claude-code-router not found. Install it with:\n"
-            "  pip install claude-code-router",
+            "Error: KIMI_API_KEY not set. Provide it via:\n"
+            "  --api-key flag, or\n"
+            "  KIMI_API_KEY environment variable",
             err=True,
         )
         raise typer.Exit(code=1)
 
-    # Get CCR config (host/port from config file or defaults)
-    ccr_host, ccr_port = _get_ccr_config()
-    ccr_base_url = f"http://{ccr_host}:{ccr_port}/v1"
+    # Set up isolated config dir for API key auth
+    _setup_kimigas_config(kimi_api_key)
 
-    # Check if CCR is running, start it if needed
-    if not _is_ccr_running(ccr_host, ccr_port):
-        if no_auto_start_ccr:
-            typer.echo(
-                f"Error: claude-code-router is not running at {ccr_base_url}.\n"
-                "Start it with: ccr start",
-                err=True,
-            )
-            raise typer.Exit(code=1)
-
-        typer.echo("Starting claude-code-router...")
-        if not _start_ccr():
-            typer.echo(
-                "Error: Failed to start claude-code-router.\n"
-                "Start it manually with: ccr start",
-                err=True,
-            )
-            raise typer.Exit(code=1)
-        typer.echo(f"claude-code-router ready at {ccr_base_url}")
-
-    # Build environment with Claude Code redirected to CCR
-    # Following Ollama's pattern from cmd/config/claude.go
+    # Build environment
     env = get_clean_env()
     env.update({
-        # Redirect Anthropic API to CCR
-        "ANTHROPIC_BASE_URL": ccr_base_url,
-        "ANTHROPIC_API_KEY": "",  # CCR handles auth
-        "ANTHROPIC_AUTH_TOKEN": "claude-code-router",
-        # Map Claude model aliases to Kimi models via CCR
-        "ANTHROPIC_DEFAULT_OPUS_MODEL": "kimi-k2.5",
-        "ANTHROPIC_DEFAULT_SONNET_MODEL": "kimi-k2.5",
-        "ANTHROPIC_DEFAULT_HAIKU_MODEL": "kimi-k2.5",
-        "CLAUDE_CODE_SUBAGENT_MODEL": "kimi-k2.5",
-        # Tell CCR which provider to use (if supported)
-        "CCR_PROVIDER": "local",  # Use local Kimi K2.5
+        # Redirect to Kimi's Anthropic-compatible endpoint
+        "ANTHROPIC_BASE_URL": _KIMI_ANTHROPIC_BASE_URL,
+        "ANTHROPIC_API_KEY": kimi_api_key,
+        "DISABLE_COST_WARNINGS": "true",
+        # Use isolated config dir
+        "CLAUDE_CONFIG_DIR": str(_CLAUDE_CONFIG_DIR),
     })
 
     # Build claude command arguments
     claude_args = [claude_path]
 
+    # Map --yolo to --dangerously-skip-permissions
     if yolo:
-        claude_args.append("--yolo")
-
-    if dangerous_skip_permissions:
         claude_args.append("--dangerously-skip-permissions")
 
     if work_dir is not None:
@@ -218,7 +184,7 @@ def claude(
     claude_args.extend(ctx.args)
 
     # Launch Claude Code with modified environment
-    typer.echo(f"Launching Claude Code with Kimi backend...")
+    typer.echo("Launching Claude Code with Kimi K2.5 backend...")
 
     try:
         # Use os.execvpe to replace current process with claude
