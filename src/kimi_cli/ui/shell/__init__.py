@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import shlex
 from collections.abc import Awaitable, Coroutine
+from contextlib import suppress
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any
@@ -85,7 +85,7 @@ class Shell:
 
                     # Check for queued type-ahead messages before prompting
                     queued_input: str | None = None
-                    with contextlib.suppress(asyncio.QueueEmpty):
+                    with suppress(asyncio.QueueEmpty):
                         queued_input = self._message_queue.get_nowait()
 
                     if queued_input is not None:

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
+import socket
 import subprocess
 import time
 from pathlib import Path
@@ -15,21 +17,33 @@ from kimi_cli.utils.subprocess_env import get_clean_env
 
 cli = typer.Typer(help="Run other CLI tools with Kimi backend.")
 
-# CCR (claude-code-router) configuration
-_CCR_HOST = "localhost"
-_CCR_PORT = 8180
-_CCR_BASE_URL = f"http://{_CCR_HOST}:{_CCR_PORT}/v1"
+# CCR (claude-code-router) configuration defaults
+_CCR_DEFAULT_HOST = "127.0.0.1"
+_CCR_DEFAULT_PORT = 8180
 _CCR_START_TIMEOUT = 10  # seconds
 
 
-def _is_ccr_running() -> bool:
-    """Check if claude-code-router is running."""
-    import socket
+def _get_ccr_config() -> tuple[str, int]:
+    """Get CCR host and port from config file or defaults."""
+    config_path = Path.home() / ".claude-code-router" / "config.json"
+    try:
+        if config_path.exists():
+            with open(config_path, encoding="utf-8") as f:
+                config = json.load(f)
+            host = config.get("HOST", _CCR_DEFAULT_HOST)
+            port = config.get("PORT", _CCR_DEFAULT_PORT)
+            return host, port
+    except Exception:
+        pass
+    return _CCR_DEFAULT_HOST, _CCR_DEFAULT_PORT
 
+
+def _is_ccr_running(host: str, port: int) -> bool:
+    """Check if claude-code-router is running."""
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(1)
-        result = sock.connect_ex((_CCR_HOST, _CCR_PORT))
+        result = sock.connect_ex((host, port))
         sock.close()
         return result == 0
     except Exception:
@@ -51,9 +65,12 @@ def _start_ccr() -> bool:
             start_new_session=True,
         )
 
+        # Get the configured host/port
+        host, port = _get_ccr_config()
+
         # Wait for CCR to be ready
         for _ in range(_CCR_START_TIMEOUT):
-            if _is_ccr_running():
+            if _is_ccr_running(host, port):
                 return True
             time.sleep(1)
 
@@ -144,11 +161,15 @@ def claude(
         )
         raise typer.Exit(code=1)
 
+    # Get CCR config (host/port from config file or defaults)
+    ccr_host, ccr_port = _get_ccr_config()
+    ccr_base_url = f"http://{ccr_host}:{ccr_port}/v1"
+
     # Check if CCR is running, start it if needed
-    if not _is_ccr_running():
+    if not _is_ccr_running(ccr_host, ccr_port):
         if no_auto_start_ccr:
             typer.echo(
-                f"Error: claude-code-router is not running at {_CCR_BASE_URL}.\n"
+                f"Error: claude-code-router is not running at {ccr_base_url}.\n"
                 "Start it with: ccr start",
                 err=True,
             )
@@ -162,14 +183,14 @@ def claude(
                 err=True,
             )
             raise typer.Exit(code=1)
-        typer.echo(f"claude-code-router ready at {_CCR_BASE_URL}")
+        typer.echo(f"claude-code-router ready at {ccr_base_url}")
 
     # Build environment with Claude Code redirected to CCR
     # Following Ollama's pattern from cmd/config/claude.go
     env = get_clean_env()
     env.update({
         # Redirect Anthropic API to CCR
-        "ANTHROPIC_BASE_URL": _CCR_BASE_URL,
+        "ANTHROPIC_BASE_URL": ccr_base_url,
         "ANTHROPIC_API_KEY": "",  # CCR handles auth
         "ANTHROPIC_AUTH_TOKEN": "claude-code-router",
         # Map Claude model aliases to Kimi models via CCR
