@@ -36,6 +36,49 @@ uv tool install git+https://github.com/gastown-publish/kimigas.git
 
 See the [Gas Town integration guide](docs/en/guides/gastown.md) for setup details. For upstream documentation, see [Getting Started](https://moonshotai.github.io/kimi-cli/en/guides/getting-started.html).
 
+## Claude Code Mode (`--claude`)
+
+In addition to the native Kimi CLI, kimigas can launch **Claude Code** with Kimi K2.5 as the backend LLM. This gives you Claude Code's UI and tooling with Kimi's language model.
+
+### How it works
+
+Kimi provides a native [Anthropic-compatible API endpoint](https://github.com/gastown-publish/kimigas/blob/main/CLAUDE_CODE_KIMI_INTEGRATION.md). By setting environment variables, Claude Code connects to Kimi instead of Anthropic:
+
+```bash
+export ANTHROPIC_BASE_URL="https://api.kimi.com/coding/"
+export ANTHROPIC_API_KEY="sk-kimi-..."
+```
+
+### Usage
+
+```sh
+# Native Kimi CLI mode (default)
+kimigas
+kimigas -p "fix the bug"
+
+# Claude Code mode
+kimigas --claude
+kimigas --claude --yolo              # Auto-approve all actions
+kimigas --claude -p "refactor auth"  # One-shot task
+```
+
+### Gas Town Integration
+
+For Gas Town multi-agent orchestration, use `--claude --yolo`:
+
+```bash
+# Set as default agent
+gt config agent set kimigas "kimigas --claude --yolo"
+
+# Start crew worker
+gt crew start myrig myname --agent kimigas
+
+# Sling work to polecat
+gt sling gt-abc myrig --agent kimigas
+```
+
+See [Claude Code + Kimi Integration](CLAUDE_CODE_KIMI_INTEGRATION.md) for detailed architecture and setup.
+
 ## Key Features
 
 ### Shell command mode
