@@ -1,0 +1,206 @@
+#!/usr/bin/env bash
+# kimigas - Unified launcher for Kimi CLI and Claude Code with Kimi backend
+#
+# This script provides two modes:
+#   1. Native Kimi CLI mode (default) - Direct access to kimi-cli
+#   2. Claude Code mode (--claude) - Claude Code UI with Kimi K2.5 backend
+#
+# The Claude Code mode uses Kimi's native Anthropic-compatible endpoint,
+# giving full hook support, tool use, MCP, and Gas Town protocol.
+#
+# Usage:
+#   kimigas                              # Launch native Kimi CLI
+#   kimigas --claude                     # Launch Claude Code with Kimi
+#   kimigas --claude --yolo              # Claude Code with auto-approval
+#   kimigas --claude -p "do something"   # One-shot mode
+#
+# Gas Town integration:
+#   gt config agent set kimigas "kimigas --claude --yolo"
+#   gt crew start myrig myname --agent kimigas
+#   gt sling gt-abc myrig --agent kimigas
+#
+set -euo pipefail
+
+VERSION="2.2.0"
+KIMI_CLI_BIN="${KIMI_CLI_BIN:-$(command -v kimi-cli 2>/dev/null || echo "${HOME}/.local/bin/kimi-cli")}"
+
+# Parse arguments
+CLAUDE_MODE=false
+YOLO_MODE=false
+PRINT_HELP=false
+PRINT_VERSION=false
+CLAUDE_ARGS=()
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --claude)
+            CLAUDE_MODE=true
+            shift
+            ;;
+        --yolo|--yes|-y|--auto-approve)
+            YOLO_MODE=true
+            CLAUDE_ARGS+=("--dangerously-skip-permissions")
+            shift
+            ;;
+        --version|-V)
+            PRINT_VERSION=true
+            shift
+            ;;
+        --help|-h)
+            PRINT_HELP=true
+            shift
+            ;;
+        -p|--prompt)
+            CLAUDE_ARGS+=("$1" "$2")
+            shift 2
+            ;;
+        *)
+            if [[ "$CLAUDE_MODE" == "true" ]]; then
+                CLAUDE_ARGS+=("$1")
+            else
+                # Pass through to kimi-cli
+                CLAUDE_ARGS+=("$1")
+            fi
+            shift
+            ;;
+    esac
+done
+
+# =============================================================================
+# Native Kimi CLI Mode (default) - Pass through all arguments
+# =============================================================================
+if [[ "$CLAUDE_MODE" == "false" ]]; then
+    # In native mode, handle our own --version and --help, pass rest to kimi-cli
+    if [[ "$PRINT_VERSION" == "true" ]]; then
+        echo "kimigas $VERSION (native mode -> kimi-cli)"
+        echo ""
+        echo "Kimi CLI:    $($KIMI_CLI_BIN --version 2>/dev/null || echo 'not installed')"
+        exit 0
+    fi
+
+    if [[ "$PRINT_HELP" == "true" ]]; then
+        echo "kimigas $VERSION - Native Kimi CLI mode"
+        echo ""
+        echo "Usage: kimigas [kimi-cli-options]"
+        echo ""
+        echo "All arguments are passed directly to kimi-cli."
+        echo ""
+        echo "To use Claude Code mode with Kimi backend:"
+        echo "  kimigas --claude [options]"
+        echo ""
+        echo "Run 'kimi --help' for native CLI options."
+        exit 0
+    fi
+
+    exec "$KIMI_CLI_BIN" "${CLAUDE_ARGS[@]}"
+fi
+
+# =============================================================================
+# Claude Code Mode - Handle help/version here
+# =============================================================================
+
+# Show version
+if [[ "$PRINT_VERSION" == "true" ]]; then
+    echo "kimigas $VERSION (Claude Code mode)"
+    echo ""
+    echo "Claude Code: $(claude --version 2>/dev/null || echo 'not installed')"
+    echo "Kimi CLI:    $($KIMI_CLI_BIN --version 2>/dev/null || echo 'not installed')"
+    exit 0
+fi
+
+# Show help
+if [[ "$PRINT_HELP" == "true" ]]; then
+    cat <<'HELP'
+kimigas - Claude Code with Kimi K2.5 backend
+
+USAGE:
+    kimigas --claude [OPTIONS]           Launch Claude Code with Kimi backend
+
+OPTIONS:
+    --yolo, --yes, -y                    Auto-approve all actions
+    -p, --prompt TEXT                    Initial prompt/task
+    -V, --version                        Show version
+    -h, --help                           Show this help
+
+    All other flags are passed through to claude.
+
+EXAMPLES:
+    kimigas --claude                     Interactive with approvals
+    kimigas --claude --yolo              Auto-approve all actions
+    kimigas --claude -p "refactor auth"  One-shot with auto-approval
+
+ENVIRONMENT:
+    KIMI_API_KEY                         Kimi API key
+    ANTHROPIC_API_KEY                    Fallback API key
+
+GAS TOWN INTEGRATION:
+    gt config agent set kimigas "kimigas --claude --yolo"
+    gt crew start myrig myname --agent kimigas
+    gt sling gt-abc myrig --agent kimigas
+
+DOCUMENTATION:
+    https://github.com/gastown-publish/kimigas/blob/main/CLAUDE_CODE_KIMI_INTEGRATION.md
+
+HELP
+    exit 0
+fi
+
+# =============================================================================
+# Claude Code Mode
+# =============================================================================
+
+# Kimi's native Anthropic-compatible endpoint for Claude Code
+export ANTHROPIC_BASE_URL="https://api.kimi.com/coding/"
+export ANTHROPIC_API_KEY="${KIMI_API_KEY:-${ANTHROPIC_API_KEY:-sk-kimi-FhrGdeoLhNruYW9VcVZaMt2GSuQj3GPwraqkrqTRC5v7Tfnq3ZlHILMSKM37A8SM}}"
+export DISABLE_COST_WARNINGS="true"
+
+# Claude Code interactive mode ignores ANTHROPIC_API_KEY env var, preferring OAuth
+# from .credentials.json. To use API key auth, we need a separate config dir with:
+#   1. No OAuth credentials (.credentials.json without claudeAiOauth)
+#   2. Onboarding marked complete (hasCompletedOnboarding + theme in .claude.json)
+#   3. API key fingerprint pre-approved (customApiKeyResponses.approved)
+# The fingerprint is just the last 20 chars of the API key.
+KIMIGAS_CONFIG="${HOME}/.claude-kimigas"
+_needs_setup=false
+[[ ! -d "$KIMIGAS_CONFIG" ]] && _needs_setup=true
+if $_needs_setup; then
+    mkdir -p "$KIMIGAS_CONFIG"
+    # Copy only essential config (not debug, history, session data)
+    for f in .claude.json settings.json keybindings.json stats-cache.json; do
+        [[ -f "${HOME}/.claude/$f" ]] && cp -f "${HOME}/.claude/$f" "$KIMIGAS_CONFIG/$f" 2>/dev/null || true
+    done
+    for d in skills agents commands plugins; do
+        [[ -d "${HOME}/.claude/$d" ]] && cp -a "${HOME}/.claude/$d" "$KIMIGAS_CONFIG/$d" 2>/dev/null || true
+    done
+    # Write empty credentials (no OAuth = forces API key auth)
+    echo '{}' > "$KIMIGAS_CONFIG/.credentials.json"
+
+    # Patch .claude.json: mark onboarding complete, pre-approve API key,
+    # accept bypass permissions dialog
+    _cfg="$KIMIGAS_CONFIG/.claude.json"
+    _fingerprint="${ANTHROPIC_API_KEY: -20}"
+    if command -v node >/dev/null 2>&1; then
+        node - "$_cfg" "$_fingerprint" <<'NODESCRIPT'
+const fs = require("fs");
+const [,, cfgPath, fingerprint] = process.argv;
+let c = {};
+try { c = JSON.parse(fs.readFileSync(cfgPath, "utf8")); } catch {}
+c.hasCompletedOnboarding = true;
+c.lastOnboardingVersion = "2.1.38";
+c.theme = c.theme || "dark";
+c.bypassPermissionsModeAccepted = true;
+if (!c.customApiKeyResponses) c.customApiKeyResponses = {};
+if (!c.customApiKeyResponses.approved) c.customApiKeyResponses.approved = [];
+if (!c.customApiKeyResponses.approved.includes(fingerprint)) c.customApiKeyResponses.approved.push(fingerprint);
+fs.writeFileSync(cfgPath, JSON.stringify(c));
+NODESCRIPT
+    fi
+fi
+export CLAUDE_CONFIG_DIR="$KIMIGAS_CONFIG"
+
+# Gas Town environment setup
+if [[ -n "${GT_ROLE:-}" ]]; then
+    echo "[kimigas] Starting Claude Code as Gas Town ${GT_ROLE} (pid $$)" >&2
+fi
+
+exec claude "${CLAUDE_ARGS[@]}"
