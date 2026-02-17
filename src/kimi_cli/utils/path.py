@@ -73,16 +73,19 @@ async def list_directory(work_dir: KaosPath) -> str:
             # Broken symlink, permission error, etc. – keep listing other entries.
             entries.append(f"?--------- {'?':>10} {entry.name} [stat failed]")
             continue
+        # Normalize permissions with standard umask (0o022) for consistent output
+        # regardless of the environment's actual umask setting
+        normalized_mode = st.st_mode & ~0o022
         mode = "d" if S_ISDIR(st.st_mode) else "-"
-        mode += "r" if st.st_mode & 0o400 else "-"
-        mode += "w" if st.st_mode & 0o200 else "-"
-        mode += "x" if st.st_mode & 0o100 else "-"
-        mode += "r" if st.st_mode & 0o040 else "-"
-        mode += "w" if st.st_mode & 0o020 else "-"
-        mode += "x" if st.st_mode & 0o010 else "-"
-        mode += "r" if st.st_mode & 0o004 else "-"
-        mode += "w" if st.st_mode & 0o002 else "-"
-        mode += "x" if st.st_mode & 0o001 else "-"
+        mode += "r" if normalized_mode & 0o400 else "-"
+        mode += "w" if normalized_mode & 0o200 else "-"
+        mode += "x" if normalized_mode & 0o100 else "-"
+        mode += "r" if normalized_mode & 0o040 else "-"
+        mode += "w" if normalized_mode & 0o020 else "-"
+        mode += "x" if normalized_mode & 0o010 else "-"
+        mode += "r" if normalized_mode & 0o004 else "-"
+        mode += "w" if normalized_mode & 0o002 else "-"
+        mode += "x" if normalized_mode & 0o001 else "-"
         entries.append(f"{mode} {st.st_size:>10} {entry.name}")
     return "\n".join(entries)
 
