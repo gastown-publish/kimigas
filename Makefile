@@ -20,7 +20,7 @@ prepare: download-deps install-prek ## Sync dependencies for all workspace packa
 .PHONY: prepare-build
 prepare-build: download-deps ## Sync dependencies for releases without workspace sources.
 	@echo "==> Syncing dependencies for release builds (no sources)"
-	@uv sync --all-extras --all-packages --no-sources
+	@uv sync --all-extras --no-sources
 
 # for kimi web development
 .PHONY: web-back web-front
