@@ -21,6 +21,9 @@ _KIMI_ANTHROPIC_BASE_URL = "https://api.kimi.com/coding/"
 # Separate config dir to force API key auth (avoiding OAuth)
 _CLAUDE_CONFIG_DIR = Path.home() / ".claude-kimigas"
 
+# Path to the bundled CLAUDE.md system prompt
+_CLAUDE_SYSTEM_PROMPT_PATH = Path(__file__).parent.parent / "agents" / "claude" / "CLAUDE.md"
+
 
 def _setup_kimigas_config(api_key: str) -> None:
     """Set up isolated Claude config dir for API key auth.
@@ -81,6 +84,39 @@ def _setup_kimigas_config(api_key: str) -> None:
 def _find_claude_binary() -> str | None:
     """Find the claude binary in PATH."""
     return shutil.which("claude")
+
+
+def _setup_claude_md(work_dir: Path | None) -> Path | None:
+    """Set up CLAUDE.md system prompt in the working directory.
+
+    Copies the bundled CLAUDE.md to the working directory if:
+      1. The bundled CLAUDE.md exists
+      2. No CLAUDE.md already exists in the working directory
+
+    This ensures the agent reads the system prompt first when starting.
+
+    Returns:
+        The path to the CLAUDE.md file if created, None otherwise.
+    """
+    # Determine the target directory
+    target_dir = work_dir if work_dir is not None else Path.cwd()
+
+    # Check if bundled CLAUDE.md exists
+    if not _CLAUDE_SYSTEM_PROMPT_PATH.exists():
+        return None
+
+    # Check if CLAUDE.md already exists in target directory
+    target_claude_md = target_dir / "CLAUDE.md"
+    if target_claude_md.exists():
+        # Don't overwrite existing CLAUDE.md
+        return None
+
+    try:
+        shutil.copy2(_CLAUDE_SYSTEM_PROMPT_PATH, target_claude_md)
+        return target_claude_md
+    except OSError:
+        # If we can't write (e.g., permission issues), continue without error
+        return None
 
 
 @cli.command(context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
@@ -155,6 +191,11 @@ def claude(
 
     # Set up isolated config dir for API key auth
     _setup_kimigas_config(kimi_api_key)
+
+    # Set up CLAUDE.md system prompt in working directory
+    claude_md_path = _setup_claude_md(work_dir)
+    if claude_md_path is not None:
+        typer.echo(f"Loaded system prompt: {claude_md_path}")
 
     # Build environment
     env = get_clean_env()
