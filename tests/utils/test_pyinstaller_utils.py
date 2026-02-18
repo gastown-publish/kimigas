@@ -64,6 +64,7 @@ def test_pyinstaller_datas():
                 "src/kimi_cli/CHANGELOG.md",
                 "kimi_cli",
             ),
+            ("src/kimi_cli/agents/claude/CLAUDE.md", "kimi_cli/agents/claude"),
             ("src/kimi_cli/agents/default/agent.yaml", "kimi_cli/agents/default"),
             ("src/kimi_cli/agents/default/sub.yaml", "kimi_cli/agents/default"),
             ("src/kimi_cli/agents/default/system.md", "kimi_cli/agents/default"),
