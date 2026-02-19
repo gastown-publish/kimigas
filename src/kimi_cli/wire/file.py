@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
@@ -15,6 +16,11 @@ from kimi_cli.wire.protocol import WIRE_PROTOCOL_LEGACY_VERSION, WIRE_PROTOCOL_V
 from kimi_cli.wire.types import WireMessage, WireMessageEnvelope
 
 
+def _get_actor_id() -> str | None:
+    """Get the actor ID from the BD_ACTOR environment variable (Gas Town integration)."""
+    return os.environ.get("BD_ACTOR")
+
+
 class WireFileMetadata(BaseModel):
     """Metadata header stored as the first line in wire.jsonl."""
 
@@ -22,6 +28,8 @@ class WireFileMetadata(BaseModel):
 
     type: Literal["metadata"] = "metadata"
     protocol_version: str
+    actor_id: str | None = None
+    """The actor identifier for Gas Town integration (from BD_ACTOR env var)."""
 
 
 class WireMessageRecord(BaseModel):
@@ -126,7 +134,10 @@ class WireFile:
         needs_header = not self.path.exists() or self.path.stat().st_size == 0
         async with aiofiles.open(self.path, mode="a", encoding="utf-8") as f:
             if needs_header:
-                metadata = WireFileMetadata(protocol_version=self.protocol_version)
+                metadata = WireFileMetadata(
+                    protocol_version=self.protocol_version,
+                    actor_id=_get_actor_id(),
+                )
                 await f.write(_dump_line(metadata))
             await f.write(_dump_line(record))
 
