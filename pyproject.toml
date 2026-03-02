@@ -46,6 +46,9 @@ dev = [
     "pytest>=9.0.2",
     "pytest-asyncio>=1.3.0",
     "ruff>=0.14.10",
+    "respx>=0.22.0",       # API snapshot testing
+    "openai>=1.0.0",       # Chat provider tests
+    "asyncssh>=2.14.0",    # SSH tests
 ]
 
 [build-system]
