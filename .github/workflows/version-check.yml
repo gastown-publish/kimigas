@@ -1,0 +1,104 @@
+name: Version Check
+
+on:
+  pull_request:
+    paths:
+      - "pyproject.toml"
+      - "packages/**/pyproject.toml"
+      - ".github/workflows/version-check.yml"
+  workflow_dispatch:
+    inputs:
+      expected_version:
+        description: "Expected version to check against (e.g., 1.14.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  version-check:
+    name: Validate Version Consistency
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Extract version from pyproject.toml
+        id: extract_version
+        run: |
+          python3 << 'EOF'
+          import tomllib
+          import sys
+          from pathlib import Path
+
+          pyproject_path = Path("pyproject.toml")
+          with pyproject_path.open("rb") as f:
+              data = tomllib.load(f)
+          
+          version = data.get("project", {}).get("version")
+          if not version:
+              print("ERROR: Could not extract version from pyproject.toml", file=sys.stderr)
+              sys.exit(1)
+          
+          print(f"Extracted version: {version}")
+          # Output for GitHub Actions
+          import os
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"version={version}\n")
+          EOF
+
+      - name: Display extracted version
+        run: |
+          echo "Version in pyproject.toml: ${{ steps.extract_version.outputs.version }}"
+
+      - name: Check version against expected (workflow_dispatch)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          EXPECTED_VERSION="${{ github.event.inputs.expected_version }}"
+          ACTUAL_VERSION="${{ steps.extract_version.outputs.version }}"
+          
+          echo "Expected version: $EXPECTED_VERSION"
+          echo "Actual version: $ACTUAL_VERSION"
+          
+          if [ "$EXPECTED_VERSION" != "$ACTUAL_VERSION" ]; then
+            echo "ERROR: Version mismatch!"
+            echo "  Expected: $EXPECTED_VERSION"
+            echo "  Actual:   $ACTUAL_VERSION"
+            echo ""
+            echo "Please update the version in pyproject.toml before releasing."
+            exit 1
+          fi
+          
+          echo "✅ Version check passed: $ACTUAL_VERSION matches expected $EXPECTED_VERSION"
+
+      - name: Validate version format
+        run: |
+          VERSION="${{ steps.extract_version.outputs.version }}"
+          
+          # Validate semver format (x.y.z)
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "ERROR: Version '$VERSION' does not follow semantic versioning (x.y.z)"
+            exit 1
+          fi
+          
+          echo "✅ Version format is valid: $VERSION"
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Version Check Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version in pyproject.toml:** ${{ steps.extract_version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Trigger:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ job.status }}" == "success" ]; then
+            echo "- **Status:** ✅ PASSED" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- **Status:** ❌ FAILED" >> $GITHUB_STEP_SUMMARY
+          fi
