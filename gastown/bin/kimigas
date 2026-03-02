@@ -19,7 +19,7 @@
 set -euo pipefail
 
 SCRIPT_NAME="$(basename "$0")"
-VERSION="1.10.0"
+VERSION="1.14.0"
 
 # --- Configuration ---
 KIMI_BIN="${KIMI_BIN:-kimi}"
@@ -30,6 +30,7 @@ KIMI_ARGS=()
 YOLO_MODE=false
 WIRE_MODE=false
 PRINT_MODE=false
+CLAUDE_MODE=false
 PROMPT=""
 WORK_DIR=""
 PASSTHROUGH_ARGS=()
@@ -50,6 +51,10 @@ while [[ $# -gt 0 ]]; do
         --print)
             PRINT_MODE=true
             KIMI_ARGS+=("--print")
+            shift
+            ;;
+        --claude)
+            CLAUDE_MODE=true
             shift
             ;;
         -p|--prompt|-c|--command)
@@ -179,5 +184,10 @@ if [[ "${BARE_PROMPT:-false}" == "true" && -n "$PROMPT" ]]; then
     fi
 fi
 
-# --- Launch kimi ---
-exec "$KIMI_BIN" "${KIMI_ARGS[@]}" "${PASSTHROUGH_ARGS[@]}"
+# --- Handle Claude mode ---
+if [[ "$CLAUDE_MODE" == "true" ]]; then
+    exec "$KIMI_BIN" run claude "${PASSTHROUGH_ARGS[@]}"
+fi
+
+# --- Execute kimi-cli ---
+exec "$KIMI_BIN" "${KIMI_ARGS[@]}"
